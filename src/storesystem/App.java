@@ -12,6 +12,7 @@ import storesystem.order.Order;
 import storesystem.order.OrderFileHandler;
 import storesystem.order.OrderItem;
 import storesystem.order.Product;
+import storesystem.order.ProductLoadResult;
 import storesystem.order.SalesReport;
 import storesystem.order.SoldItem;
 
@@ -50,7 +51,14 @@ public class App {
 	 * or exit) based on the user's input, until the user chooses to exit.
 	 */
 	public static void run() {
-		List<Product> catalog = fileHandler.loadProducts(PRODUCTS_FILE);
+		ProductLoadResult loadResult = fileHandler.loadProducts(PRODUCTS_FILE);
+		List<Product> catalog = loadResult.getProducts();
+
+		// print every skipped-line warning collected during loadProducts()
+		System.out.println("");
+		for (String warning : loadResult.getWarnings()) {
+			System.out.println("Warning: " + warning);
+		}
 
 		if (catalog.isEmpty()) {
 			System.out.println("Warning: no products loaded. Check " + PRODUCTS_FILE);
@@ -184,11 +192,10 @@ public class App {
 		// column headers for the table below
 		System.out.printf("%-20s %10s %10s%n", "Product", "Qty Sold", "Revenue");
 
-
 		// print one row per product with its qty sold and revenue
 		Map<String, Integer> qtyMap = report.getQuantitySold();
 		Map<String, Double> revenueMap = report.getRevenueByProduct();
-		
+
 		for (String name : qtyMap.keySet()) {
 			System.out.printf("%-20s %10d %10.2f%n", name, qtyMap.get(name), revenueMap.get(name));
 		}

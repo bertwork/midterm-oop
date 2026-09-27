@@ -48,18 +48,21 @@ public class OrderFileHandler {
      * @param filePath path to the products file
      * @return the list of successfully parsed products (possibly empty)
      */
-    public List<Product> loadProducts(String filePath) {
+    public ProductLoadResult loadProducts(String filePath) {
         List<Product> products = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
         File file = new File(filePath);
 
         if (!file.exists()) {
-            return products;
+            return new ProductLoadResult(products, warnings);
         }
 
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
+            int lineNumber = 0; // use to track bad file input
 
             while ((line = reader.readLine()) != null) {
+                lineNumber++;
                 line = line.trim();
 
                 if (line.isEmpty())
@@ -67,23 +70,24 @@ public class OrderFileHandler {
 
                 String[] parts = line.split("\\|");
 
-                if (parts.length < 2)
-                    continue; // skip malformed lines
+                if (parts.length < 2) {
+                    warnings.add("Line " + lineNumber + ": missing price (\"" + line + "\") — skipped");
+                    continue;
+                }
 
                 try {
                     String name = parts[0].trim();
                     double price = Double.parseDouble(parts[1].trim());
                     products.add(new Product(name, price));
                 } catch (IllegalArgumentException e) {
-                    // skip a line with a bad price instead of crashing the whole load
-                    continue;
+                    warnings.add("Line " + lineNumber + ": invalid price (\"" + line + "\") — skipped");
                 }
             }
         } catch (IOException e) {
             System.out.println("Could not read products file: " + e.getMessage());
         }
 
-        return products;
+        return new ProductLoadResult(products, warnings);
     }
 
     /**

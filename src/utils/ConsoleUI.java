@@ -8,7 +8,7 @@ public class ConsoleUI {
     public static void printHeader(String title) {
         int lineCount = 50;
 
-        System.out.println(headerLine(lineCount, '='));
+        System.out.println("\n" + headerLine(lineCount, '='));
 
         int padding = (lineCount - title.length()) / 2;
         System.out.println(" ".repeat(Math.max(0, padding)) + title);
