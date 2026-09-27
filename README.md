@@ -29,6 +29,7 @@ Both roles use the same single terminal session; the menu doesn't distinguish be
     │       ├── OrderItem.java         # A product + quantity line item
     │       ├── Order.java             # A collection of OrderItems + optional Discount
     │       ├── OrderFileHandler.java  # Reads/writes products.psv and orders.psv
+    │       ├── ProductLoadResult.java # Products + skipped-line warnings from loadProducts()
     │       ├── SoldItem.java          # Flattened sold-item record used for reporting
     │       └── SalesReport.java       # Aggregates SoldItems into sales statistics
     └── utils/
@@ -62,12 +63,13 @@ The application follows a simple layered structure with a clear separation of co
 └───────┬───────┘   └──────────┬────────────┘
         │                      │
         ▼                      ▼
-┌────────────────┐   ┌──────────────────────┐
-│   Discount     │   │  Product / Order /   │
-│  (abstract)    │   │  OrderItem / SoldItem│
-│  ├ Fixed       │   │  (plain data models) │
-│  └ Percentage  │   └───────────┬──────────┘
-└────────────────┘               │
+┌────────────────┐   ┌──────────────────────────┐
+│   Discount     │   │  Product / Order /       │
+│  (abstract)    │   │  OrderItem / SoldItem /  │
+│  ├ Fixed       │   │  ProductLoadResult       │
+│  └ Percentage  │   │  (plain data models)     │
+└────────────────┘   └───────────┬──────────────┘
+                                 │
                                  ▼
                         ┌───────────────────┐
                         │   SalesReport     │
@@ -85,7 +87,7 @@ ConsoleUI / InputReader (utils package)
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `storesystem`          | Application entry point and the top-level controller (`App`) that drives the console menu and ties everything together.                                                                                      |
 | `storesystem.discount` | Discount logic: an abstract `Discount` type, two concrete strategies (`FixedAmountDiscount`, `PercentageDiscount`), and a `DiscountPolicy` that decides which discount (if any) applies to a given subtotal. |
-| `storesystem.order`    | Core domain models (`Product`, `OrderItem`, `Order`, `SoldItem`) and their supporting services: `OrderFileHandler` (persistence) and `SalesReport` (reporting/aggregation).                                  |
+| `storesystem.order`    | Core domain models (`Product`, `OrderItem`, `Order`, `SoldItem`, `ProductLoadResult`) and their supporting services: `OrderFileHandler` (persistence) and `SalesReport` (reporting/aggregation).             |
 | `utils`                | Generic, reusable console helpers not tied to store business logic.                                                                                                                                          |
 
 ### Key design points
@@ -93,19 +95,19 @@ ConsoleUI / InputReader (utils package)
 - **Strategy pattern for discounts.** `Discount` is an abstract class with `apply(double)`. `FixedAmountDiscount` and `PercentageDiscount` are interchangeable strategies. `DiscountPolicy` is the single place that decides _which_ strategy to use based on business rules (currently: 10% off orders of ₱500+), so new discount types or rules can be added without touching `Order` or `App`.
 - **Separation of persistence from domain models.** `Product`, `Order`, and `OrderItem` know nothing about how they're saved. All file reading/writing lives in `OrderFileHandler`, so the storage format (currently pipe-delimited text) could be swapped out (e.g. for a database or JSON) by changing only that one class.
 - **`SoldItem` vs `OrderItem`.** `OrderItem` is used while building a live order and references a full `Product` object. `SoldItem` is a flattened, storage-oriented record (just name/quantity/subtotal) reconstructed from saved order files, used only for sales reporting — the two are intentionally decoupled.
-- **Fail-soft file parsing.** `OrderFileHandler` skips malformed lines/fields (bad prices, incomplete lines, unparsable numbers) rather than crashing, so a single corrupted line doesn't take down the whole catalog or order history.
+- **Fail-soft file parsing, with visible warnings.** `OrderFileHandler` skips malformed lines/fields (bad prices, incomplete lines, unparsable numbers) rather than crashing, so a single corrupted line doesn't take down the whole catalog or order history. For product loading specifically, `loadProducts()` no longer skips silently: it returns a `ProductLoadResult` bundling the successfully parsed products together with a human-readable warning (line number + reason) for every skipped line, which `App` prints to the console before continuing. This keeps the file handler focused purely on I/O — it never prints anything itself — while still surfacing *why* the catalog came back shorter than expected.
 - **Consistent, single-delimiter file format.** `orders.psv` writes one flat, pipe-delimited line per sold item (grouped by a shared `orderId`) instead of nesting a comma/colon sub-format inside one pipe-delimited column. Every field on every line uses the same `|` delimiter, matching what a `.psv` extension implies and making the file simpler to parse, edit, or import elsewhere.
 
 ## OOP Concepts Used
 
 | Concept                                                                                       | Where it's used                                                                                                                                                       | Explanation                                                                                                                                                                                                                                                                                                                                     |
 | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Encapsulation**                                                                             | `Product`, `OrderItem`, `Order`, `SoldItem`, `Discount` and its subclasses                                                                                            | All fields are `private` and only exposed through getters (and, where appropriate, controlled setters like `Order.setDiscount()`). Internal state can't be modified directly from outside the class — e.g. `OrderItem` and `Product` validate their constructor arguments (`quantity > 0`, `price >= 0`) so invalid objects can never exist.    |
+| **Encapsulation**                                                                             | `Product`, `OrderItem`, `Order`, `SoldItem`, `ProductLoadResult`, `Discount` and its subclasses                                                                       | All fields are `private` (`ProductLoadResult`'s are `private final`) and only exposed through getters (and, where appropriate, controlled setters like `Order.setDiscount()`). Internal state can't be modified directly from outside the class — e.g. `OrderItem` and `Product` validate their constructor arguments (`quantity > 0`, `price >= 0`) so invalid objects can never exist. |
 | **Abstraction**                                                                               | `Discount` (abstract class)                                                                                                                                           | `Discount` defines _what_ a discount does (`apply(double subtotal)`, `getLabel()`) without specifying _how_ the discount amount is calculated. Callers like `Order.getTotal()` and `App` work with the abstract `Discount` type and don't need to know which concrete kind of discount is in use.                                               |
 | **Inheritance**                                                                               | `FixedAmountDiscount extends Discount`, `PercentageDiscount extends Discount`                                                                                         | Both subclasses inherit the shared `label` field/`getLabel()` behavior from `Discount` via `super(label)`, and only add the calculation logic specific to their discount type.                                                                                                                                                                  |
 | **Polymorphism**                                                                              | `Discount discount = discountPolicy.determineDiscount(subtotal); discount.apply(subtotal);` in `App`/`Order`                                                          | Code that calls `discount.apply(subtotal)` doesn't know (or care) whether `discount` is actually a `FixedAmountDiscount` or a `PercentageDiscount` — the correct `apply()` implementation is chosen at runtime (dynamic method dispatch). This is what lets `DiscountPolicy` return different discount types through one common reference type. |
-| **Composition ("has-a" relationships)**                                                       | `Order` has-a `List<OrderItem>` and has-a `Discount`; `OrderItem` has-a `Product`                                                                                     | Rather than inheriting from each other, these classes are built by combining simpler objects. An `Order` is composed of `OrderItem`s, and each `OrderItem` is composed with a `Product` — this models the real-world "an order contains items, an item references a product" relationship.                                                      |
-| **Single Responsibility (class design principle, not a pure OOP pillar but closely related)** | `OrderFileHandler` (persistence only), `SalesReport` (aggregation only), `DiscountPolicy` (discount rule decision only), `ConsoleUI`/`InputReader` (console I/O only) | Each class is responsible for exactly one concern, which is why, for example, `Order` and `Product` never touch file I/O — that's delegated entirely to `OrderFileHandler`.                                                                                                                                                                     |
+| **Composition ("has-a" relationships)**                                                       | `Order` has-a `List<OrderItem>` and has-a `Discount`; `OrderItem` has-a `Product`; `ProductLoadResult` has-a `List<Product>` and a `List<String>`                     | Rather than inheriting from each other, these classes are built by combining simpler objects. An `Order` is composed of `OrderItem`s, and each `OrderItem` is composed with a `Product` — this models the real-world "an order contains items, an item references a product" relationship. `ProductLoadResult` bundles two independent results (successes and warnings) from one load operation into a single return value.                                                      |
+| **Single Responsibility (class design principle, not a pure OOP pillar but closely related)** | `OrderFileHandler` (persistence only), `SalesReport` (aggregation only), `DiscountPolicy` (discount rule decision only), `ConsoleUI`/`InputReader` (console I/O only) | Each class is responsible for exactly one concern, which is why, for example, `Order` and `Product` never touch file I/O — that's delegated entirely to `OrderFileHandler`, and why `OrderFileHandler` reports warnings as data instead of printing them itself, leaving console output to `App`.                                             |
 
 ## Currency
 
@@ -126,6 +128,8 @@ Wireless Keyboard|49.50
 ```
 
 (Prices shown as plain numbers in the file; per the [Currency](#currency) note above, treat these as ₱29.99, ₱49.50, and ₱219.00.)
+
+If a line is missing its price or has an unparsable price, `loadProducts()` skips that line and reports it as a warning (e.g. `Line 4: invalid price ("Wireless Keyboard|abc") — skipped`) rather than silently dropping it or crashing the app.
 
 ### `data/orders.psv`
 
