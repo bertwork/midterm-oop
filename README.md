@@ -12,25 +12,28 @@ Both roles use the same single terminal session; the menu doesn't distinguish be
 ## Project Structure
 
 ```
-src/
-├── storesystem/
-│   ├── Main.java                  # Application entry point
-│   ├── App.java                   # Main menu loop and orchestration
-│   ├── discount/
-│   │   ├── Discount.java          # Abstract base class for discounts
-│   │   ├── DiscountPolicy.java    # Business rule: decides which discount applies
-│   │   ├── FixedAmountDiscount.java
-│   │   └── PercentageDiscount.java
-│   └── order/
-│       ├── Product.java           # A catalog product (name + price)
-│       ├── OrderItem.java         # A product + quantity line item
-│       ├── Order.java             # A collection of OrderItems + optional Discount
-│       ├── OrderFileHandler.java  # Reads/writes products.psv and orders.psv
-│       ├── SoldItem.java          # Flattened sold-item record used for reporting
-│       └── SalesReport.java       # Aggregates SoldItems into sales statistics
-└── utils/
-    ├── ConsoleUI.java             # Header/separator printing helpers
-    └── InputReader.java           # Console input helpers (prompts, validated ints)
+├── data/
+│   ├── products.psv               # Product catalog (name|price)
+│   └── orders.psv                 # Saved order history (one line per sold item)
+└── src/
+    ├── storesystem/
+    │   ├── Main.java                  # Application entry point
+    │   ├── App.java                   # Main menu loop and orchestration
+    │   ├── discount/
+    │   │   ├── Discount.java          # Abstract base class for discounts
+    │   │   ├── DiscountPolicy.java    # Business rule: decides which discount applies
+    │   │   ├── FixedAmountDiscount.java
+    │   │   └── PercentageDiscount.java
+    │   └── order/
+    │       ├── Product.java           # A catalog product (name + price)
+    │       ├── OrderItem.java         # A product + quantity line item
+    │       ├── Order.java             # A collection of OrderItems + optional Discount
+    │       ├── OrderFileHandler.java  # Reads/writes products.psv and orders.psv
+    │       ├── SoldItem.java          # Flattened sold-item record used for reporting
+    │       └── SalesReport.java       # Aggregates SoldItems into sales statistics
+    └── utils/
+        ├── ConsoleUI.java             # Header/separator printing helpers
+        └── InputReader.java           # Console input helpers (prompts, validated ints)
 ```
 
 ## Architecture
